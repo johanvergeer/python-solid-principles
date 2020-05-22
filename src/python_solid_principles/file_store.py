@@ -5,10 +5,7 @@ import structlog
 
 log = structlog.getLogger()
 
-
-def _read_message(file_path: Path) -> str:
-    with file_path.open("r") as message_file:
-        return message_file.read()
+UTF_8 = "utf-8"
 
 
 class MessageStore:
@@ -21,6 +18,7 @@ class MessageStore:
         self.__working_directory = working_directory
         self.__logger = StoreLogger()
         self.__cache = StoreCache()
+        self.__store = FileStore()
 
     @property
     def working_directory(self) -> Path:
@@ -29,28 +27,24 @@ class MessageStore:
     def save(self, message_id: int, message: str) -> None:
         self.__logger.log_saving_message(message_id, message)
 
-        file_path = self.get_file_path(message_id)
-        with file_path.open("w") as message_file:
-            message_file.write(message)
+        file_path = self.__store.get_file_path(message_id, self.__working_directory)
+        self.__store.write_all_text(file_path, message)
 
         self.__cache.add_or_update(message_id, message)
         self.__logger.log_saved_message(message_id)
 
     def read(self, message_id: int) -> Optional[str]:
         self.__logger.log_reading_message(message_id)
-        file_path = self.get_file_path(message_id)
+        file_path = self.__store.get_file_path(message_id, self.__working_directory)
 
         if not file_path.exists():
             self.__logger.log_message_not_found(message_id)
             return None
 
-        msg = self.__cache.get_or_add(message_id, file_path, _read_message)
+        msg = self.__cache.get_or_add(message_id, file_path, self.__store.read_all_text)
         self.__logger.log_returning_message(message_id, msg)
 
         return msg
-
-    def get_file_path(self, message_id: int) -> Path:
-        return self.__working_directory / f"{message_id}.txt"
 
 
 class StoreLogger:
@@ -87,3 +81,14 @@ class StoreCache:
         self._cache[message_id] = message
 
         return message
+
+
+class FileStore:
+    def write_all_text(self, path: Path, message: str) -> None:
+        path.write_text(message, encoding=UTF_8)
+
+    def read_all_text(self, path: Path) -> str:
+        return path.read_text(encoding=UTF_8)
+
+    def get_file_path(self, message_id: int, working_dir: Path) -> Path:
+        return working_dir / f"{message_id}.txt"

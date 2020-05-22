@@ -1,4 +1,5 @@
 from pathlib import Path
+from tempfile import mkstemp
 from unittest.mock import Mock, patch
 
 import structlog
@@ -8,10 +9,11 @@ import pytest
 from faker import Faker
 
 from python_solid_principles.file_store import (
+    UTF_8,
+    FileStore,
     MessageStore,
     StoreCache,
     StoreLogger,
-    _read_message,
 )
 
 
@@ -42,20 +44,31 @@ def configure_structlog(log_output):
 
 @pytest.fixture
 def working_dir(tmpdir):
-    return tmpdir
+    yield tmpdir
+
+    tmpdir.remove()
 
 
 @pytest.fixture
-def message_store(working_dir):
+def message_store(working_dir) -> MessageStore:
     return MessageStore(working_dir)
+
+
+@pytest.fixture
+def temp_file() -> Path:
+    f = Path(mkstemp()[1])
+
+    yield f
+
+
+@pytest.fixture
+def file_store() -> FileStore:
+    return FileStore()
 
 
 class TestMessageStore:
     def test_init__working_dir_does_not_exist(self, tmp_path):
         working_dir = Path("/non_existing_path")
-
-        # path_mock.exists.return_value = False
-        # path_mock.resolve.return_value = Path("non_existing_path")
 
         with pytest.raises(FileNotFoundError) as err:
             MessageStore(working_dir)
@@ -72,16 +85,6 @@ class TestMessageStore:
         # THEN working_directory should be set
         assert fs.working_directory == working_dir
 
-    def test_get_file_path(self, message_store, working_dir, message_id):
-        # GIVEN a FileStorage instance
-        # AND a message id
-
-        # WHEN getting the file path
-        file_path = message_store.get_file_path(message_id)
-
-        # THEN the file info should contain the file path
-        assert file_path == working_dir / f"{message_id}.txt"
-
     @patch("python_solid_principles.file_store.StoreCache.add_or_update")
     @patch("python_solid_principles.file_store.StoreLogger.log_saving_message")
     @patch("python_solid_principles.file_store.StoreLogger.log_saved_message")
@@ -91,6 +94,7 @@ class TestMessageStore:
         log_saving_message_mock,
         add_or_update_mock,
         message_store,
+        file_store,
         message_id,
         working_dir,
         log_output,
@@ -104,12 +108,11 @@ class TestMessageStore:
         message_store.save(message_id, message)
 
         # THEN the message file should be created
-        file_path = message_store.get_file_path(message_id)
+        file_path = file_store.get_file_path(message_id, working_dir)
         assert file_path.exists()
 
         # AND the message file should contain the message
-        with file_path.open("r") as message_file:
-            assert message_file.read() == message
+        assert file_path.read_text(encoding=UTF_8) == message
 
         # AND log entries are created
         log_saving_message_mock.assert_called_once()
@@ -155,6 +158,7 @@ class TestMessageStore:
         log_reading_message_mock,
         get_or_add_mock,
         message_store,
+        file_store,
         message_id,
         working_dir,
         log_output,
@@ -163,9 +167,8 @@ class TestMessageStore:
         # GIVEN a file storage
         # AND a message id
         # AND a file containing a message
-        file_path = message_store.get_file_path(message_id)
-        with file_path.open("w") as message_file:
-            message_file.write(message)
+        file_path = file_store.get_file_path(message_id, working_dir)
+        file_path.write_text(message, encoding=UTF_8)
 
         get_or_add_mock.return_value = message
 
@@ -268,7 +271,7 @@ class TestStoreCache:
         # GIVEN the cache is empty
         assert len(cache._cache) == 0
 
-        read_message_mock = Mock(obj=_read_message, return_value=message)
+        read_message_mock = Mock(obj=FileStore().read_all_text, return_value=message)
         message_file = Path()
 
         # WHEN a message is added with the message_id
@@ -287,7 +290,7 @@ class TestStoreCache:
         message_file = Path()
 
         # AND a function to get the message from the file when it's not in the cache yet
-        read_message_mock = Mock(obj=_read_message, return_value=message)
+        read_message_mock = Mock(obj=FileStore().read_all_text, return_value=message)
 
         # WHEN the message is requested from the cache
         found_message = cache.get_or_add(message_id, message_file, read_message_mock)
@@ -296,3 +299,24 @@ class TestStoreCache:
         assert found_message == message
         # AND the file is not read because the cache is used
         read_message_mock.assert_not_called()
+
+
+class TestFileStore:
+    def test_write_all_text(self, temp_file, message, file_store):
+        file_store.write_all_text(temp_file, message)
+
+        with temp_file.open("r") as file:
+            assert file.read() == message
+
+    def test_read_all_text(self, temp_file, message, file_store):
+        temp_file.write_text(message)
+
+        found_message = file_store.read_all_text(temp_file)
+
+        assert found_message == message
+
+    def test_get_file_path(self, working_dir, file_store, message_id):
+        assert (
+            file_store.get_file_path(message_id, working_dir)
+            == working_dir / f"{message_id}.txt"
+        )
