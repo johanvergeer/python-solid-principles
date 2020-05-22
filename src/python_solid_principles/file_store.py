@@ -11,7 +11,7 @@ def _read_message(file_path: Path) -> str:
         return message_file.read()
 
 
-class FileStore:
+class MessageStore:
     def __init__(self, working_directory: Path):
         if not working_directory.exists():
             raise FileNotFoundError(

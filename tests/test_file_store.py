@@ -8,7 +8,7 @@ import pytest
 from faker import Faker
 
 from python_solid_principles.file_store import (
-    FileStore,
+    MessageStore,
     StoreCache,
     StoreLogger,
     _read_message,
@@ -46,11 +46,11 @@ def working_dir(tmpdir):
 
 
 @pytest.fixture
-def file_storage(working_dir):
-    return FileStore(working_dir)
+def message_store(working_dir):
+    return MessageStore(working_dir)
 
 
-class TestFileStore:
+class TestMessageStore:
     def test_init__working_dir_does_not_exist(self, tmp_path):
         working_dir = Path("/non_existing_path")
 
@@ -58,7 +58,7 @@ class TestFileStore:
         # path_mock.resolve.return_value = Path("non_existing_path")
 
         with pytest.raises(FileNotFoundError) as err:
-            FileStore(working_dir)
+            MessageStore(working_dir)
 
         assert "working_directory '/non_existing_path' does not exist" in str(err.value)
 
@@ -66,18 +66,18 @@ class TestFileStore:
         # GIVEN an existing working directory
         working_dir = tmpdir
 
-        # WHEN creating a FileStore instance
-        fs = FileStore(working_dir)
+        # WHEN creating a MessageStore instance
+        fs = MessageStore(working_dir)
 
         # THEN working_directory should be set
         assert fs.working_directory == working_dir
 
-    def test_get_file_path(self, file_storage, working_dir, message_id):
+    def test_get_file_path(self, message_store, working_dir, message_id):
         # GIVEN a FileStorage instance
         # AND a message id
 
         # WHEN getting the file path
-        file_path = file_storage.get_file_path(message_id)
+        file_path = message_store.get_file_path(message_id)
 
         # THEN the file info should contain the file path
         assert file_path == working_dir / f"{message_id}.txt"
@@ -90,7 +90,7 @@ class TestFileStore:
         log_saved_entries_mock,
         log_saving_message_mock,
         add_or_update_mock,
-        file_storage,
+        message_store,
         message_id,
         working_dir,
         log_output,
@@ -101,10 +101,10 @@ class TestFileStore:
         # AND a message
 
         # WHEN saving the message
-        file_storage.save(message_id, message)
+        message_store.save(message_id, message)
 
         # THEN the message file should be created
-        file_path = file_storage.get_file_path(message_id)
+        file_path = message_store.get_file_path(message_id)
         assert file_path.exists()
 
         # AND the message file should contain the message
@@ -126,7 +126,7 @@ class TestFileStore:
         log_message_not_found_mock,
         log_reading_message_mock,
         get_or_add_mock,
-        file_storage,
+        message_store,
         log_output,
         message_id,
     ):
@@ -134,7 +134,7 @@ class TestFileStore:
         # AND the file to read does not exist
 
         # WHEN trying to read the file
-        message = file_storage.read(message_id)
+        message = message_store.read(message_id)
 
         # THEN the message is None
         assert message is None
@@ -154,7 +154,7 @@ class TestFileStore:
         log_returning_message_mock,
         log_reading_message_mock,
         get_or_add_mock,
-        file_storage,
+        message_store,
         message_id,
         working_dir,
         log_output,
@@ -163,14 +163,14 @@ class TestFileStore:
         # GIVEN a file storage
         # AND a message id
         # AND a file containing a message
-        file_path = file_storage.get_file_path(message_id)
+        file_path = message_store.get_file_path(message_id)
         with file_path.open("w") as message_file:
             message_file.write(message)
 
         get_or_add_mock.return_value = message
 
         # WHEN reading the file through FileStorage
-        message_read = file_storage.read(message_id)
+        message_read = message_store.read(message_id)
 
         # THEN the message should have been read
         assert message_read == message
